@@ -24,6 +24,7 @@ use std::net::AddrParseError;
 use std::sync::Arc;
 
 use log::error;
+use stackdriver_logger::Service;
 
 use oak_abi::OakStatus;
 
@@ -124,6 +125,12 @@ pub fn from_protobuf(
 pub fn configure_and_run(
     app_config: ApplicationConfiguration,
 ) -> Result<(Arc<Runtime>, Handle), OakStatus> {
+    let params = Service {
+        name: "Oak-Runtime".to_owned(),
+        version: "0.1.0".to_owned(),
+    };
+    stackdriver_logger::init_with(Some(params), true);
+
     let configuration = from_protobuf(app_config)?;
     let runtime = Arc::new(Runtime::create(configuration));
     let handle = runtime.clone().run()?;

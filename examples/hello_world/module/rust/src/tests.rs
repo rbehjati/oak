@@ -23,8 +23,6 @@ const MODULE_CONFIG_NAME: &str = "hello_world";
 // Test invoking the SayHello Node service method via the Oak runtime.
 #[test]
 fn test_say_hello() {
-    simple_logger::init().unwrap();
-
     let (runtime, entry_channel) = oak_tests::run_single_module_default(MODULE_CONFIG_NAME)
         .expect("Unable to configure runtime with test wasm!");
 

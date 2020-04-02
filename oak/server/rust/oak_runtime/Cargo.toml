@@ -25,6 +25,7 @@ protobuf = "*"
 rand = { version = "*", default-features = false, features = ["alloc"] }
 tokio = { version = "*", features = ["rt-core"] }
 wasmi = { version = "*", default-features = false, features = ["core"] }
+stackdriver_logger = "0.7.0"
 
 [dev-dependencies]
 maplit = "*"

@@ -22,8 +22,6 @@ const MODULE_CONFIG_NAME: &str = "translator";
 
 #[test]
 fn test_translate() {
-    simple_logger::init().unwrap();
-
     let (runtime, entry_channel) = oak_tests::run_single_module_default(MODULE_CONFIG_NAME)
         .expect("Unable to configure runtime with test wasm!");
 

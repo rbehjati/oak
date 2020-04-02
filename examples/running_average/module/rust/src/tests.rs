@@ -37,8 +37,6 @@ fn submit_sample(runtime: &oak_runtime::Runtime, entry_channel: oak_runtime::Han
 
 #[test]
 fn test_running_average() {
-    simple_logger::init().unwrap();
-
     let (runtime, entry_channel) = oak_tests::run_single_module_default(MODULE_CONFIG_NAME)
         .expect("Unable to configure runtime with test wasm!");
 
