@@ -23,8 +23,8 @@ use std::collections::HashMap;
 use std::net::AddrParseError;
 use std::sync::Arc;
 
-use log::error;
-use stackdriver_logger::Service;
+use tracing::{error, Level};
+use tracing_subscriber::FmtSubscriber;
 
 use oak_abi::OakStatus;
 
@@ -125,11 +125,14 @@ pub fn from_protobuf(
 pub fn configure_and_run(
     app_config: ApplicationConfiguration,
 ) -> Result<(Arc<Runtime>, Handle), OakStatus> {
-    let params = Service {
-        name: "Oak-Runtime".to_owned(),
-        version: "0.1.0".to_owned(),
-    };
-    stackdriver_logger::init_with(Some(params), true);
+    let subscriber = FmtSubscriber::builder()
+        // all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
+        // will be written to stdout.
+        .with_max_level(Level::INFO)
+        // completes the builder.
+        .finish();
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("setting defualt subscriber failed");
 
     let configuration = from_protobuf(app_config)?;
     let runtime = Arc::new(Runtime::create(configuration));

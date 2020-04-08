@@ -20,7 +20,7 @@ use std::sync::atomic::Ordering::SeqCst;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::thread::{Thread, ThreadId};
 
-use log::debug;
+use tracing::{debug};
 use rand::RngCore;
 
 use oak_abi::OakStatus;
@@ -121,6 +121,7 @@ impl Channel {
     /// Insert the given `thread` reference into `thread_id` slot of the HashMap of waiting
     /// channels attached to an underlying channel. This allows the channel to wake up any waiting
     /// channels by calling `thread::unpark` on all the threads it knows about.
+    #[tracing::instrument]
     pub fn add_waiter(&self, thread_id: ThreadId, thread: &Arc<Thread>) {
         self.waiting_threads
             .lock()
@@ -155,6 +156,7 @@ impl Channel {
 
 impl ChannelMapping {
     /// Create a new empty [`ChannelMapping`].
+    #[tracing::instrument]
     pub fn new() -> ChannelMapping {
         ChannelMapping {
             channels: RwLock::new(HashMap::new()),
@@ -238,6 +240,7 @@ impl ChannelMapping {
 
     /// Deallocate a [`Handle`] reference. The reference will no longer be usable in
     /// operations, and the underlying [`Channel`] may become orphaned.
+    #[tracing::instrument]
     pub fn remove_reference(&self, reference: Handle) -> Result<(), OakStatus> {
         if let Ok(channel_id) = self.get_writer_channel(reference) {
             {

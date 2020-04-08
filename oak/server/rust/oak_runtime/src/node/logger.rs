@@ -17,7 +17,7 @@
 use std::fmt::{self, Display, Formatter};
 use std::string::String;
 
-use log::{error, info};
+use tracing::{error, info};
 
 use oak_abi::OakStatus;
 use std::thread::{self, JoinHandle};
@@ -79,6 +79,16 @@ impl super::Node for LogNode {
     }
 }
 
+impl std::fmt::Debug for RuntimeProxy{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RuntimeProxy")
+        //  .field("x", &self.x)
+        //  .field("y", &self.y)
+         .finish()
+    }
+}
+
+#[tracing::instrument]
 fn logger(pretty_name: &str, runtime: &RuntimeProxy, reader: Handle) -> Result<(), OakStatus> {
     loop {
         // An error indicates the runtime is terminating. We ignore it here and keep trying to read

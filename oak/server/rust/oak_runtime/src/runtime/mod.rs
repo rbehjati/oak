@@ -25,7 +25,7 @@ use core::sync::atomic::{AtomicBool, AtomicU64};
 
 use oak_abi::{label::Label, ChannelReadStatus, OakStatus};
 
-use log::{debug, error};
+use tracing::{debug, error};
 
 use crate::message::Message;
 use crate::node;
@@ -85,6 +85,14 @@ pub struct Runtime {
     next_node_id: AtomicU64,
 }
 
+impl std::fmt::Debug for Runtime {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Runtime")
+        //  .field("nodes count", &self.node_infos.len())
+         .finish()
+    }
+}
+
 impl Runtime {
     /// Creates a [`Runtime`] instance but does not start executing any node.
     pub fn create(configuration: Configuration) -> Self {
@@ -109,6 +117,7 @@ impl Runtime {
     /// Returns a writeable [`Handle`] to send messages into the [`Runtime`]. To receive messages,
     /// creating a new channel and passing the write [`Handle`] into the runtime will enable
     /// messages to be read back out.
+    #[tracing::instrument]
     pub fn run(self: Arc<Self>) -> Result<Handle, OakStatus> {
         let module_name = self.configuration.entry_module.clone();
         let entrypoint = self.configuration.entrypoint.clone();
@@ -204,6 +213,7 @@ impl Runtime {
 
     /// Validate the [`NodeId`] has access to [`Handle`], returning `Err(OakStatus::ErrBadHandle)`
     /// if access is not allowed.
+    #[tracing::instrument]
     fn validate_handle_access(&self, node_id: NodeId, handle: Handle) -> Result<(), OakStatus> {
         // Allow RUNTIME_NODE_ID access to all handles.
         if node_id == RUNTIME_NODE_ID {
@@ -295,6 +305,7 @@ impl Runtime {
 
     /// Returns whether the calling node is allowed to read from the provided channel, according to
     /// their respective [`Label`]s.
+    #[tracing::instrument]
     fn validate_can_read_from_channel(
         &self,
         node_id: NodeId,
@@ -424,6 +435,7 @@ impl Runtime {
     /// In particular, if there is at least one channel in good status and no messages on said
     /// channel available, [`Runtime::wait_on_channels`] will continue to block until a message is
     /// available.
+    #[tracing::instrument]
     pub fn wait_on_channels(
         &self,
         node_id: NodeId,
