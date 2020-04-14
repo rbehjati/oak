@@ -361,6 +361,7 @@ impl Runtime {
 
     /// Returns whether the calling node is allowed to write to the provided channel, according to
     /// their respective [`Label`]s.
+    #[tracing::instrument]
     fn validate_can_write_to_channel(
         &self,
         node_id: NodeId,

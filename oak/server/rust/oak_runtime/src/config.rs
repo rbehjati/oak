@@ -25,6 +25,9 @@ use std::sync::Arc;
 
 use tracing::{error, Level};
 use tracing_subscriber::FmtSubscriber;
+use tracing_subscriber::Layer;
+use tracing_subscriber::prelude::*;
+use tracing::Subscriber;
 
 use oak_abi::OakStatus;
 
@@ -118,6 +121,23 @@ pub fn from_protobuf(
     Ok(config)
 }
 
+struct MyLayer{
+    content: String,
+}
+
+impl MyLayer{
+    pub fn new(content: String) -> Self {
+        MyLayer{
+            content: content,
+        }
+    }
+}
+
+impl<S: Subscriber> Layer<S> for MyLayer {
+    // ...
+}
+
+
 /// Configure a [`Runtime`] from the given protobuf [`ApplicationConfiguration`] and begin
 /// execution. This returns an [`Arc`] reference to the created [`Runtime`], and a writeable
 /// [`Handle`] to send messages into the runtime. Creating a new channel and passing the write
@@ -125,12 +145,15 @@ pub fn from_protobuf(
 pub fn configure_and_run(
     app_config: ApplicationConfiguration,
 ) -> Result<(Arc<Runtime>, Handle), OakStatus> {
+    // TODO: configure based on RUST_LOG env-var
     let subscriber = FmtSubscriber::builder()
         // all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
         // will be written to stdout.
-        .with_max_level(Level::INFO)
+        .with_max_level(Level::DEBUG)
         // completes the builder.
-        .finish();
+        .finish()
+        .with(MyLayer::new("Test-Layer".to_string()));
+
     tracing::subscriber::set_global_default(subscriber)
         .expect("setting defualt subscriber failed");
 
