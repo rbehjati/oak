@@ -27,7 +27,7 @@ use oak_abi::{
     grpc::encap_request, label::Label, proto::oak::encap::GrpcRequest, ChannelReadStatus, OakStatus,
 };
 
-use crate::{metrics::METRICS, pretty_name_for_thread, runtime::RuntimeProxy, Handle};
+use crate::{pretty_name_for_thread, runtime::RuntimeProxy, Handle};
 
 /// Struct that represents a gRPC server pseudo-Node.
 ///
@@ -279,7 +279,11 @@ impl GrpcServerNode {
                 .map(|message| {
                     // Return an empty HTTP body if the `message` is None.
                     message.map_or(vec![], |m| {
-                        METRICS.grpc_response_size.observe(m.data.len() as f64);
+                        self.runtime
+                            .runtime
+                            .metrics_data
+                            .grpc_response_size
+                            .observe(m.data.len() as f64);
                         m.data
                     })
                 })
@@ -298,7 +302,7 @@ impl GrpcServerNode {
 
         // Receive a `writer` handle used to pass handles for temporary channels.
         self.init_channel_writer()
-            .expect("Couldn't initialialize node writer");
+            .expect("Couldn't initialize node writer");
 
         // Initialize a function that creates a separate instance on the `server` for each
         // HTTP request.
@@ -311,9 +315,19 @@ impl GrpcServerNode {
             async move {
                 Ok::<_, hyper::Error>(hyper::service::service_fn(move |req| {
                     let request_server = connection_server.clone();
-                    METRICS.grpc_requests_total.inc();
+                    request_server
+                        .runtime
+                        .runtime
+                        .metrics_data
+                        .grpc_requests_total
+                        .inc();
                     async move {
-                        let timer = METRICS.grpc_request_duration.start_timer();
+                        let timer = request_server
+                            .runtime
+                            .runtime
+                            .metrics_data
+                            .grpc_request_duration
+                            .start_timer();
                         let res = request_server.serve(req).await;
                         timer.observe_duration();
                         res

@@ -26,8 +26,9 @@ use std::{
     thread::JoinHandle,
 };
 
-use crate::{message::Message, metrics::METRICS, node, pretty_name_for_thread};
+use crate::{message::Message, metrics::Metrics, node, pretty_name_for_thread};
 use oak_abi::{label::Label, ChannelReadStatus, OakStatus};
+use prometheus::proto::MetricFamily;
 
 mod channel;
 #[cfg(feature = "oak_debug")]
@@ -181,6 +182,8 @@ pub struct Runtime {
     next_node_id: AtomicU64,
 
     aux_servers: Mutex<Vec<AuxServer>>,
+
+    pub metrics_data: Metrics,
 }
 
 impl Runtime {
@@ -198,6 +201,8 @@ impl Runtime {
             next_node_id: AtomicU64::new(1),
 
             aux_servers: Mutex::new(Vec::new()),
+
+            metrics_data: Metrics::new(),
         }
     }
 
@@ -255,6 +260,10 @@ impl Runtime {
             .expect("could not close channel");
 
         Ok(chan_writer)
+    }
+
+    pub fn gather_metrics(&self) -> Vec<MetricFamily> {
+        self.metrics_data.gather()
     }
 
     /// Generate a Graphviz dot graph that shows the current shape of the Nodes and Channels in
@@ -978,7 +987,7 @@ impl Runtime {
     }
 
     fn update_nodes_count_metric(&self) {
-        METRICS.runtime_nodes_count.set(
+        self.metrics_data.runtime_nodes_count.set(
             self.node_infos
                 .read()
                 .expect("could not acquire lock on node_infos")

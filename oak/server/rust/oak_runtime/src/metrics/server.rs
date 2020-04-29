@@ -14,11 +14,7 @@
 // limitations under the License.
 //
 
-use hyper::{
-    header::CONTENT_TYPE,
-    service::{make_service_fn, service_fn},
-    Body, Request, Response, Server,
-};
+use hyper::{header::CONTENT_TYPE, Body, Request, Response, Server, service::make_service_fn, service::service_fn};
 use log::info;
 use prometheus::{Encoder, TextEncoder};
 use std::{net::SocketAddr, sync::Arc};
@@ -42,9 +38,12 @@ impl std::fmt::Display for MetricsServerError {
 
 impl std::error::Error for MetricsServerError {}
 
-async fn serve_metrics(_req: Request<Body>) -> Result<Response<Body>, MetricsServerError> {
+async fn serve_metrics(
+    runtime: Arc<Runtime>,
+    _req: Request<Body>,
+) -> Result<Response<Body>, MetricsServerError> {
     let encoder = TextEncoder::new();
-    let metric_families = prometheus::gather();
+    let metric_families = &runtime.gather_metrics();
     let mut buffer = vec![];
     encoder.encode(&metric_families, &mut buffer).map_err(|e| {
         MetricsServerError::EncodingError(format!("Could not encode metrics data: {}", e))
@@ -61,17 +60,22 @@ async fn serve_metrics(_req: Request<Body>) -> Result<Response<Body>, MetricsSer
         })
 }
 
-async fn make_server(port: u16) -> Result<(), hyper::error::Error> {
+async fn make_server(runtime: Arc<Runtime>, port: u16) -> Result<(), hyper::error::Error> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
     // A `Service` is needed for every connection, so this
     // creates one from the `process_metrics` function.
-    let make_svc = make_service_fn(|_conn| async {
-        // service_fn converts our function into a `Service`
-        Ok::<_, hyper::Error>(service_fn(serve_metrics))
+    let make_service = make_service_fn(move |_| {
+        let runtime = runtime.clone();
+        async move {
+            Ok::<_, hyper::Error>(service_fn(move |req| {
+                let runtime = runtime.clone();
+                async move { serve_metrics(runtime, req).await }
+            }))
+        }
     });
 
-    let server = Server::bind(&addr).serve(make_svc);
+    let server = Server::bind(&addr).serve(make_service);
 
     info!(
         "{:?}: Started metrics server on port {:?}",
@@ -85,12 +89,13 @@ async fn make_server(port: u16) -> Result<(), hyper::error::Error> {
 
 pub fn start_metrics_server(
     port: u16,
-    _runtime: Arc<Runtime>,
+    runtime: Arc<Runtime>,
     notify_receiver: tokio::sync::oneshot::Receiver<()>,
 ) {
+    info!("********* In metrics::server::start_metrics_server.");
     let mut tokio_runtime = tokio::runtime::Runtime::new().expect("Couldn't create Tokio runtime");
     tokio_runtime.block_on(futures::future::select(
-        Box::pin(make_server(port)),
+        Box::pin(make_server(runtime, port)),
         notify_receiver,
     ));
 }

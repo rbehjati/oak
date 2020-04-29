@@ -14,10 +14,7 @@
 // limitations under the License.
 //
 
-use prometheus::{
-    opts, register_histogram, register_int_counter, register_int_gauge, Histogram, IntCounter,
-    IntGauge,
-};
+use prometheus::{Histogram, HistogramOpts, HistogramTimer, IntCounter, IntGauge, Opts, Registry, proto::MetricFamily};
 
 pub mod server;
 
@@ -27,41 +24,83 @@ pub struct Metrics {
     pub grpc_requests_total: IntCounter,
     pub grpc_response_size: Histogram,
     pub runtime_nodes_count: IntGauge,
+    registry: Registry,
 }
 
 // TODO(#899): For testability implement a trait with methods for updating the metrics.
 // TODO(#899): Instead of using a global Registry, the Runtime should instantiate and manage the
 // Registry
 impl Metrics {
-    fn new() -> Self {
+    pub fn new() -> Self {
+        let tmp_registry = Registry::new();
         Self {
-            grpc_request_duration: register_histogram!(
-                "grpc_request_duration_seconds",
-                "The gRPC request latencies in seconds."
-            )
-            .expect("Creating grpc_request_duration_seconds metric failed."),
+            grpc_request_duration: Self::register(
+                &tmp_registry,
+                Self::histogram(
+                    "grpc_request_duration_seconds",
+                    "The gRPC request latencies in seconds.",
+                ),
+            ),
 
-            grpc_requests_total: register_int_counter!(opts!(
-                "grpc_requests_total",
-                "Total number of gRPC requests received."
-            ))
-            .expect("Creating grpc_requests_total metric failed."),
+            grpc_requests_total: Self::register(
+                &tmp_registry,
+                Self::int_counter(
+                    "grpc_requests_total",
+                    "Total number of gRPC requests received.",
+                ),
+            ),
 
-            grpc_response_size: register_histogram!(
-                "grpc_response_size_bytes",
-                "The gRPC response sizes in bytes."
-            )
-            .expect("Creating grpc_response_size_bytes metric failed."),
-
-            runtime_nodes_count: register_int_gauge!(opts!(
-                "runtime_nodes_count",
-                "Number of nodes in the runtime."
-            ))
-            .expect("Creating runtime_nodes_count metric failed."),
+            grpc_response_size: Self::register(
+                &tmp_registry,
+                Self::histogram(
+                    "grpc_response_size_bytes",
+                    "The gRPC response sizes in bytes.",
+                ),
+            ),
+            runtime_nodes_count: Self::register(
+                &tmp_registry,
+                Self::int_gauge("runtime_nodes_count", "Number of nodes in the runtime."),
+            ),
+            registry: tmp_registry,
         }
+    }
+
+    fn register<T: 'static + prometheus::core::Collector + Clone>(
+        registry: &Registry,
+        metric: T,
+    ) -> T {
+        registry.register(Box::new(metric.clone())).unwrap();
+        metric
+    }
+
+    fn histogram(metric_name: &str, help: &str) -> Histogram {
+        let opts = HistogramOpts::new(metric_name, help);
+        Histogram::with_opts(opts).unwrap()
+    }
+
+    fn int_counter(metric_name: &str, help: &str) -> IntCounter {
+        let opts = Opts::new(metric_name, help);
+        IntCounter::with_opts(opts).unwrap()
+    }
+
+    fn int_gauge(metric_name: &str, help: &str) -> IntGauge {
+        let opts = Opts::new(metric_name, help);
+        IntGauge::with_opts(opts).unwrap()
+    }
+
+    pub fn gather(&self) -> Vec<MetricFamily> {
+        self.registry.gather()
     }
 }
 
-lazy_static::lazy_static! {
-    pub static ref METRICS: Metrics = Metrics::new();
+impl Default for Metrics {
+    fn default() -> Self {
+        Metrics::new()
+    }
+}
+
+trait MetricsCollector {
+    fn inc_counter(metric_name: &str);
+    fn start_histogram_timer(metric_name: &str) -> HistogramTimer;
+    fn gather_metrics(&self) -> Vec<MetricFamily>;
 }
