@@ -14,82 +14,58 @@
 // limitations under the License.
 //
 
-use prometheus::{Histogram, HistogramOpts, HistogramTimer, IntCounter, IntGauge, Opts, Registry, proto::MetricFamily};
+use log::warn;
+use prometheus::{
+    proto::MetricFamily, Histogram, HistogramOpts, HistogramTimer, IntCounter, IntGauge, Opts,
+    Registry,
+};
+use std::{collections::HashMap, sync::RwLock};
 
 pub mod server;
 
-/// Struct that collects all the metrics in one place
-pub struct Metrics {
-    pub grpc_request_duration: Histogram,
-    pub grpc_requests_total: IntCounter,
-    pub grpc_response_size: Histogram,
-    pub runtime_nodes_count: IntGauge,
-    registry: Registry,
+/// Enum to allow retrieval of metrics of different types from the `metrics_info` HashMap
+#[derive(Clone)]
+enum MetricItem {
+    Counter(IntCounter),
+    Gauge(IntGauge),
+    Hist(Histogram),
 }
 
-// TODO(#899): For testability implement a trait with methods for updating the metrics.
-// TODO(#899): Instead of using a global Registry, the Runtime should instantiate and manage the
-// Registry
+/// Struct that collects all the metrics in one place
+pub struct Metrics {
+    registry: Registry,
+
+    /// Collection of all metrics, for easy lookup using a metric's name
+    metrics_info: RwLock<HashMap<String, MetricItem>>,
+}
+
 impl Metrics {
     pub fn new() -> Self {
-        let tmp_registry = Registry::new();
         Self {
-            grpc_request_duration: Self::register(
-                &tmp_registry,
-                Self::histogram(
-                    "grpc_request_duration_seconds",
-                    "The gRPC request latencies in seconds.",
-                ),
-            ),
-
-            grpc_requests_total: Self::register(
-                &tmp_registry,
-                Self::int_counter(
-                    "grpc_requests_total",
-                    "Total number of gRPC requests received.",
-                ),
-            ),
-
-            grpc_response_size: Self::register(
-                &tmp_registry,
-                Self::histogram(
-                    "grpc_response_size_bytes",
-                    "The gRPC response sizes in bytes.",
-                ),
-            ),
-            runtime_nodes_count: Self::register(
-                &tmp_registry,
-                Self::int_gauge("runtime_nodes_count", "Number of nodes in the runtime."),
-            ),
-            registry: tmp_registry,
+            registry: Registry::new(),
+            metrics_info: RwLock::new(HashMap::new()),
         }
     }
 
     fn register<T: 'static + prometheus::core::Collector + Clone>(
-        registry: &Registry,
+        &self,
         metric: T,
-    ) -> T {
-        registry.register(Box::new(metric.clone())).unwrap();
-        metric
+        metric_item: MetricItem,
+        metric_name: &str,
+    ) {
+        self.registry.register(Box::new(metric)).unwrap();
+        self.metrics_info
+            .write()
+            .expect("could not acquire lock on metrics_info")
+            .insert(metric_name.to_string(), metric_item);
     }
 
-    fn histogram(metric_name: &str, help: &str) -> Histogram {
-        let opts = HistogramOpts::new(metric_name, help);
-        Histogram::with_opts(opts).unwrap()
-    }
-
-    fn int_counter(metric_name: &str, help: &str) -> IntCounter {
-        let opts = Opts::new(metric_name, help);
-        IntCounter::with_opts(opts).unwrap()
-    }
-
-    fn int_gauge(metric_name: &str, help: &str) -> IntGauge {
-        let opts = Opts::new(metric_name, help);
-        IntGauge::with_opts(opts).unwrap()
-    }
-
-    pub fn gather(&self) -> Vec<MetricFamily> {
-        self.registry.gather()
+    fn get_metric(&self, metric_name: &str) -> Option<MetricItem> {
+        self.metrics_info
+            .read()
+            .expect("Could not acquire the lock for metrics_info.")
+            .get(metric_name)
+            .cloned()
     }
 }
 
@@ -99,8 +75,76 @@ impl Default for Metrics {
     }
 }
 
-trait MetricsCollector {
-    fn inc_counter(metric_name: &str);
-    fn start_histogram_timer(metric_name: &str) -> HistogramTimer;
+pub trait MetricsCollector {
+    fn register_histogram(&self, metric_name: &str, help: &str);
+    fn register_int_counter(&self, metric_name: &str, help: &str);
+    fn register_int_gauge(&self, metric_name: &str, help: &str);
+
+    fn inc_int_counter(&self, metric_name: &str);
+    fn set_int_gauge(&self, metric_name: &str, val: i64);
+    fn add_to_histogram(&self, metric_name: &str, val: f64);
+    fn start_histogram_timer(&self, metric_name: &str) -> Option<HistogramTimer>;
+
     fn gather_metrics(&self) -> Vec<MetricFamily>;
+}
+
+impl MetricsCollector for Metrics {
+    fn register_histogram(&self, metric_name: &str, help: &str) {
+        let opts = HistogramOpts::new(metric_name, help);
+        let hist = Histogram::with_opts(opts).unwrap();
+        self.register(hist.clone(), MetricItem::Hist(hist), metric_name);
+    }
+
+    fn register_int_counter(&self, metric_name: &str, help: &str) {
+        let opts = Opts::new(metric_name, help);
+        let counter = IntCounter::with_opts(opts).unwrap();
+        self.register(counter.clone(), MetricItem::Counter(counter), metric_name);
+    }
+
+    fn register_int_gauge(&self, metric_name: &str, help: &str) {
+        let opts = Opts::new(metric_name, help);
+        let gauge = IntGauge::with_opts(opts).unwrap();
+        self.register(gauge.clone(), MetricItem::Gauge(gauge), metric_name);
+    }
+
+    fn inc_int_counter(&self, metric_name: &str) {
+        if let Some(metric) = self.get_metric(metric_name) {
+            match metric {
+                MetricItem::Counter(cnt) => cnt.inc(),
+                _ => warn!("{} is not an IntCounter.", metric_name),
+            }
+        }
+    }
+
+    fn set_int_gauge(&self, metric_name: &str, val: i64) {
+        if let Some(metric) = self.get_metric(metric_name) {
+            match metric {
+                MetricItem::Gauge(gauge) => gauge.set(val),
+                _ => warn!("{} is not an IntGauge.", metric_name),
+            }
+        }
+    }
+
+    fn add_to_histogram(&self, metric_name: &str, val: f64) {
+        if let Some(metric) = self.get_metric(metric_name) {
+            match metric {
+                MetricItem::Hist(hist) => hist.observe(val),
+                _ => warn!("{} is not a Histogram.", metric_name),
+            }
+        }
+    }
+
+    fn start_histogram_timer(&self, metric_name: &str) -> Option<HistogramTimer> {
+        self.get_metric(metric_name).and_then(|m| match m {
+            MetricItem::Hist(hist) => Some(hist.start_timer()),
+            _ => {
+                warn!("{} is not a Histogram.", metric_name);
+                None
+            }
+        })
+    }
+
+    fn gather_metrics(&self) -> Vec<MetricFamily> {
+        self.registry.gather()
+    }
 }

@@ -27,7 +27,11 @@ use oak_abi::{
     grpc::encap_request, label::Label, proto::oak::encap::GrpcRequest, ChannelReadStatus, OakStatus,
 };
 
-use crate::{pretty_name_for_thread, runtime::RuntimeProxy, Handle};
+use crate::{metrics::*, pretty_name_for_thread, runtime::RuntimeProxy, Handle};
+
+const GRPC_REQUESTS_TOTAL: &str = "grpc_requests_total";
+const GRPC_RESPONSE_SIZE: &str = "grpc_response_size_bytes";
+const GRPC_REQUEST_DURATION: &str = "grpc_request_duration_seconds";
 
 /// Struct that represents a gRPC server pseudo-Node.
 ///
@@ -279,11 +283,10 @@ impl GrpcServerNode {
                 .map(|message| {
                     // Return an empty HTTP body if the `message` is None.
                     message.map_or(vec![], |m| {
-                        self.runtime
-                            .runtime
-                            .metrics_data
-                            .grpc_response_size
-                            .observe(m.data.len() as f64);
+                        self.runtime.runtime.metrics_data.add_to_histogram(
+                            &format!("{}_{}", GRPC_RESPONSE_SIZE, self.config_name),
+                            m.data.len() as f64,
+                        );
                         m.data
                     })
                 })
@@ -296,9 +299,26 @@ impl GrpcServerNode {
         }
     }
 
+    fn register_metrics(&self) {
+        self.runtime.runtime.metrics_data.register_histogram(
+            &format!("{}_{}", GRPC_REQUEST_DURATION, self.config_name),
+            "The gRPC request latencies in seconds.",
+        );
+        self.runtime.runtime.metrics_data.register_int_counter(
+            &format!("{}_{}", GRPC_REQUESTS_TOTAL, self.config_name),
+            "Total number of gRPC requests received.",
+        );
+        self.runtime.runtime.metrics_data.register_histogram(
+            &format!("{}_{}", GRPC_RESPONSE_SIZE, self.config_name),
+            "The gRPC response sizes in bytes.",
+        );
+    }
+
     /// Main node worker thread.
     fn worker_thread(self) {
         let pretty_name = pretty_name_for_thread(&thread::current());
+
+        self.register_metrics();
 
         // Receive a `writer` handle used to pass handles for temporary channels.
         self.init_channel_writer()
@@ -310,24 +330,26 @@ impl GrpcServerNode {
         // TODO(#813): Remove multiple `clone` calls by either introducing `Arc<Mutex<T>>`
         // or not using Hyper (move to more simple single-threaded server).
         let generator_server = self.clone();
+        let name = self.config_name.to_owned();
         let service = hyper::service::make_service_fn(move |_| {
             let connection_server = generator_server.clone();
+            let name = name.clone();
             async move {
                 Ok::<_, hyper::Error>(hyper::service::service_fn(move |req| {
                     let request_server = connection_server.clone();
+                    let name = name.clone();
                     request_server
                         .runtime
                         .runtime
                         .metrics_data
-                        .grpc_requests_total
-                        .inc();
+                        .inc_int_counter(&format!("{}_{}", GRPC_REQUESTS_TOTAL, name));
                     async move {
                         let timer = request_server
                             .runtime
                             .runtime
                             .metrics_data
-                            .grpc_request_duration
-                            .start_timer();
+                            .start_histogram_timer(&format!("{}_{}", GRPC_REQUEST_DURATION, name))
+                            .unwrap();
                         let res = request_server.serve(req).await;
                         timer.observe_duration();
                         res

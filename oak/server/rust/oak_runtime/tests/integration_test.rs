@@ -93,8 +93,6 @@ fn test_metrics_gives_the_correct_number_of_nodes() {
         .block_on(common::read_metrics())
         .expect("Reading the metrics failed.");
 
-    println!("Result from server: {}", &res);
-
     let value = get_int_metric_value(&res, "runtime_nodes_count");
     assert_eq!(value, Some(1), "{}", &res);
 

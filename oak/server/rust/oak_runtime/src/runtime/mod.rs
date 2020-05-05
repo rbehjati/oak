@@ -26,9 +26,11 @@ use std::{
     thread::JoinHandle,
 };
 
-use crate::{message::Message, metrics::Metrics, node, pretty_name_for_thread};
+use crate::{message::Message, metrics::*, node, pretty_name_for_thread};
 use oak_abi::{label::Label, ChannelReadStatus, OakStatus};
 use prometheus::proto::MetricFamily;
+
+const RUNTIME_NODES_COUNT: &str = "runtime_nodes_count";
 
 mod channel;
 #[cfg(feature = "oak_debug")]
@@ -231,6 +233,8 @@ impl Runtime {
                 ));
             }
         }
+        self.metrics_data
+            .register_int_gauge(RUNTIME_NODES_COUNT, "Number of nodes in the runtime.");
         if let Some(port) = runtime_config.metrics_port {
             self.aux_servers.lock().unwrap().push(AuxServer::new(
                 "metrics",
@@ -263,7 +267,7 @@ impl Runtime {
     }
 
     pub fn gather_metrics(&self) -> Vec<MetricFamily> {
-        self.metrics_data.gather()
+        self.metrics_data.gather_metrics()
     }
 
     /// Generate a Graphviz dot graph that shows the current shape of the Nodes and Channels in
@@ -987,7 +991,8 @@ impl Runtime {
     }
 
     fn update_nodes_count_metric(&self) {
-        self.metrics_data.runtime_nodes_count.set(
+        self.metrics_data.set_int_gauge(
+            RUNTIME_NODES_COUNT,
             self.node_infos
                 .read()
                 .expect("could not acquire lock on node_infos")

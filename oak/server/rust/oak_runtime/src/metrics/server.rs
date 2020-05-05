@@ -14,7 +14,11 @@
 // limitations under the License.
 //
 
-use hyper::{header::CONTENT_TYPE, Body, Request, Response, Server, service::make_service_fn, service::service_fn};
+use hyper::{
+    header::CONTENT_TYPE,
+    service::{make_service_fn, service_fn},
+    Body, Request, Response, Server,
+};
 use log::info;
 use prometheus::{Encoder, TextEncoder};
 use std::{net::SocketAddr, sync::Arc};
