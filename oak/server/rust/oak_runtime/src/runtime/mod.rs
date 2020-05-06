@@ -993,6 +993,7 @@ impl Runtime {
     fn update_nodes_count_metric(&self) {
         self.metrics_data.set_int_gauge(
             RUNTIME_NODES_COUNT,
+            "runtime",
             self.node_infos
                 .read()
                 .expect("could not acquire lock on node_infos")

@@ -284,7 +284,8 @@ impl GrpcServerNode {
                     // Return an empty HTTP body if the `message` is None.
                     message.map_or(vec![], |m| {
                         self.runtime.runtime.metrics_data.add_to_histogram(
-                            &format!("{}_{}", GRPC_RESPONSE_SIZE, self.config_name),
+                            GRPC_RESPONSE_SIZE,
+                            &self.config_name,
                             m.data.len() as f64,
                         );
                         m.data
@@ -301,17 +302,17 @@ impl GrpcServerNode {
 
     fn register_metrics(&self) {
         self.runtime.runtime.metrics_data.register_histogram(
-            &format!("{}_{}", GRPC_REQUEST_DURATION, self.config_name),
+            GRPC_REQUEST_DURATION,
             "The gRPC request latencies in seconds.",
         );
         self.runtime.runtime.metrics_data.register_int_counter(
-            &format!("{}_{}", GRPC_REQUESTS_TOTAL, self.config_name),
+            GRPC_REQUESTS_TOTAL,
             "Total number of gRPC requests received.",
         );
-        self.runtime.runtime.metrics_data.register_histogram(
-            &format!("{}_{}", GRPC_RESPONSE_SIZE, self.config_name),
-            "The gRPC response sizes in bytes.",
-        );
+        self.runtime
+            .runtime
+            .metrics_data
+            .register_histogram(GRPC_RESPONSE_SIZE, "The gRPC response sizes in bytes.");
     }
 
     /// Main node worker thread.
@@ -342,13 +343,13 @@ impl GrpcServerNode {
                         .runtime
                         .runtime
                         .metrics_data
-                        .inc_int_counter(&format!("{}_{}", GRPC_REQUESTS_TOTAL, name));
+                        .inc_int_counter(GRPC_REQUESTS_TOTAL, &name);
                     async move {
                         let timer = request_server
                             .runtime
                             .runtime
                             .metrics_data
-                            .start_histogram_timer(&format!("{}_{}", GRPC_REQUEST_DURATION, name))
+                            .start_histogram_timer(GRPC_REQUEST_DURATION, &name)
                             .unwrap();
                         let res = request_server.serve(req).await;
                         timer.observe_duration();

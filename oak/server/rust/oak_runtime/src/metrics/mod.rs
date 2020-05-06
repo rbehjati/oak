@@ -16,8 +16,8 @@
 
 use log::warn;
 use prometheus::{
-    proto::MetricFamily, Histogram, HistogramOpts, HistogramTimer, IntCounter, IntGauge, Opts,
-    Registry,
+    proto::MetricFamily, HistogramOpts, HistogramTimer, HistogramVec, IntCounterVec, IntGaugeVec,
+    Opts, Registry,
 };
 use std::{collections::HashMap, sync::RwLock};
 
@@ -26,9 +26,9 @@ pub mod server;
 /// Enum to allow retrieval of metrics of different types from the `metrics_info` HashMap
 #[derive(Clone)]
 enum MetricItem {
-    Counter(IntCounter),
-    Gauge(IntGauge),
-    Hist(Histogram),
+    Counter(IntCounterVec),
+    Gauge(IntGaugeVec),
+    Hist(HistogramVec),
 }
 
 /// Struct that collects all the metrics in one place
@@ -80,10 +80,10 @@ pub trait MetricsCollector {
     fn register_int_counter(&self, metric_name: &str, help: &str);
     fn register_int_gauge(&self, metric_name: &str, help: &str);
 
-    fn inc_int_counter(&self, metric_name: &str);
-    fn set_int_gauge(&self, metric_name: &str, val: i64);
-    fn add_to_histogram(&self, metric_name: &str, val: f64);
-    fn start_histogram_timer(&self, metric_name: &str) -> Option<HistogramTimer>;
+    fn inc_int_counter(&self, metric_name: &str, label: &str);
+    fn set_int_gauge(&self, metric_name: &str, label: &str, val: i64);
+    fn add_to_histogram(&self, metric_name: &str, label: &str, val: f64);
+    fn start_histogram_timer(&self, metric_name: &str, label: &str) -> Option<HistogramTimer>;
 
     fn gather_metrics(&self) -> Vec<MetricFamily>;
 }
@@ -91,54 +91,54 @@ pub trait MetricsCollector {
 impl MetricsCollector for Metrics {
     fn register_histogram(&self, metric_name: &str, help: &str) {
         let opts = HistogramOpts::new(metric_name, help);
-        let hist = Histogram::with_opts(opts).unwrap();
+        let hist = HistogramVec::new(opts, &["instance"]).unwrap();
         self.register(hist.clone(), MetricItem::Hist(hist), metric_name);
     }
 
     fn register_int_counter(&self, metric_name: &str, help: &str) {
         let opts = Opts::new(metric_name, help);
-        let counter = IntCounter::with_opts(opts).unwrap();
+        let counter = IntCounterVec::new(opts, &["instance"]).unwrap();
         self.register(counter.clone(), MetricItem::Counter(counter), metric_name);
     }
 
     fn register_int_gauge(&self, metric_name: &str, help: &str) {
         let opts = Opts::new(metric_name, help);
-        let gauge = IntGauge::with_opts(opts).unwrap();
+        let gauge = IntGaugeVec::new(opts, &["instance"]).unwrap();
         self.register(gauge.clone(), MetricItem::Gauge(gauge), metric_name);
     }
 
-    fn inc_int_counter(&self, metric_name: &str) {
+    fn inc_int_counter(&self, metric_name: &str, label: &str) {
         if let Some(metric) = self.get_metric(metric_name) {
             match metric {
-                MetricItem::Counter(cnt) => cnt.inc(),
-                _ => warn!("{} is not an IntCounter.", metric_name),
+                MetricItem::Counter(cnt) => cnt.with_label_values(&[label]).inc(),
+                _ => warn!("{} is not an IntCounterVec.", metric_name),
             }
         }
     }
 
-    fn set_int_gauge(&self, metric_name: &str, val: i64) {
+    fn set_int_gauge(&self, metric_name: &str, label: &str, val: i64) {
         if let Some(metric) = self.get_metric(metric_name) {
             match metric {
-                MetricItem::Gauge(gauge) => gauge.set(val),
-                _ => warn!("{} is not an IntGauge.", metric_name),
+                MetricItem::Gauge(gauge) => gauge.with_label_values(&[label]).set(val),
+                _ => warn!("{} is not an IntGaugeVec.", metric_name),
             }
         }
     }
 
-    fn add_to_histogram(&self, metric_name: &str, val: f64) {
+    fn add_to_histogram(&self, metric_name: &str, label: &str, val: f64) {
         if let Some(metric) = self.get_metric(metric_name) {
             match metric {
-                MetricItem::Hist(hist) => hist.observe(val),
-                _ => warn!("{} is not a Histogram.", metric_name),
+                MetricItem::Hist(hist) => hist.with_label_values(&[label]).observe(val),
+                _ => warn!("{} is not a HistogramVec.", metric_name),
             }
         }
     }
 
-    fn start_histogram_timer(&self, metric_name: &str) -> Option<HistogramTimer> {
+    fn start_histogram_timer(&self, metric_name: &str, label: &str) -> Option<HistogramTimer> {
         self.get_metric(metric_name).and_then(|m| match m {
-            MetricItem::Hist(hist) => Some(hist.start_timer()),
+            MetricItem::Hist(hist) => Some(hist.with_label_values(&[label]).start_timer()),
             _ => {
-                warn!("{} is not a Histogram.", metric_name);
+                warn!("{} is not a HistogramVec.", metric_name);
                 None
             }
         })
