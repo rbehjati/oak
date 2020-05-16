@@ -1,10 +1,11 @@
-apiVersion: v1
-kind: Pod
+apiVersion: apps/v1
+kind: Deployment
 metadata:
   name: aggregator
   labels:
     app: aggregator
 spec:
+<<<<<<< HEAD
   containers:
     - name: oak-application
       image: gcr.io/oak-ci/oak-aggregator:latest
@@ -56,6 +57,67 @@ spec:
     - name: tls-secret
       secret:
         secretName: tls-private-key
+=======
+  replicas: 2
+  selector:
+    matchLabels:
+      app: aggregator
+  template:
+    metadata:
+      labels:
+        app: aggregator
+    spec:
+      containers:
+        - name: oak-application
+          image: gcr.io/oak-ci/oak-aggregator:latest
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: tls-secret
+              mountPath: '/etc/oak-secrets'
+              readOnly: true
+          args:
+            - --application=config.bin
+            - --ca_cert=/etc/oak-secrets/ca.pem
+            - --cert_chain=/etc/oak-secrets/gcp.pem
+            - --private_key=/etc/oak-secrets/gcp.key
+        - name: backend
+          image: gcr.io/oak-ci/oak-aggregator-backend:latest
+          env:
+            - name: RUST_LOG
+              value: info
+        - name: prometheus-stackdriver-sidecar
+          image: gcr.io/stackdriver-prometheus/stackdriver-prometheus-sidecar:0.7.3
+          imagePullPolicy: Always
+          args:
+            - --stackdriver.project-id=${GCP_PROJECT}
+            - --prometheus.wal-directory=${DATA_DIR}/wal
+            - --prometheus.api-address=http://localhost:3030
+            - --stackdriver.kubernetes.location=${GCP_REGION}
+            - --stackdriver.kubernetes.cluster-name=${KUBE_CLUSTER}
+          ports:
+            - name: sidecar
+              containerPort: 9091
+          volumeMounts:
+            - name: metrics-volume
+              mountPath: ${DATA_DIR}
+          env:
+            # These values can be retrieved using 'gcloud config list'
+            - name: GCP_PROJECT
+              value: 'oak-ci'
+            - name: GCP_REGION
+              value: 'europe-west2'
+            - name: DATA_DIR
+              value: '/data'
+            - name: KUBE_CLUSTER
+              value: 'aggregator'
+      volumes:
+        - name: tls-secret
+          secret:
+            secretName: tls-private-key
+        - name: metrics-volume
+          emptyDir: {}
+>>>>>>> 3227bf71... pod to deployment
 ---
 apiVersion: v1
 kind: Service
