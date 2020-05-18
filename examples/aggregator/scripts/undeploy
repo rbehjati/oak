@@ -8,4 +8,4 @@ source "${GLOBAL_SCRIPTS_DIR}/common"
 gcloud container clusters get-credentials aggregator --zone=europe-west2-a
 kubectl delete secret tls-private-key
 kubectl delete service aggregator
-kubectl delete pod aggregator
+kubectl delete deployment aggregator
