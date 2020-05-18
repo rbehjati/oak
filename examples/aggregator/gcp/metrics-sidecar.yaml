@@ -1,0 +1,105 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metrics-sidecar
+  labels:
+    app: metrics-sidecar
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: metrics-sidecar
+  template:
+    metadata:
+      labels:
+        app: metrics-sidecar
+    spec:
+      containers:
+        - name: prometheus
+        # use an older version that is compatible with the older version of the sidecar
+          image: quay.io/prometheus/prometheus:v2.6.0
+          args:
+            - "--config.file=/etc/prometheus/config/prometheus.yml"
+            - "--storage.tsdb.path=/data"
+            - "--storage.tsdb.min-block-duration=15m"
+            - "--storage.tsdb.max-block-duration=4h"
+            - "--storage.tsdb.retention=48h"
+          ports:
+            - name: prometheus
+              containerPort: 9090
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/prometheus/config
+            - name: metrics-volume
+              mountPath: /data
+        - name: stackdriver-prometheus-sidecar
+        # use an older version that allows running `kubectl exec -it <pod-name> -c stackdriver-prometheus-sidecar -- sh`
+          image: gcr.io/stackdriver-prometheus/stackdriver-prometheus-sidecar:0.4.3
+          imagePullPolicy: Always
+          args:
+            - --stackdriver.project-id=oak-ci
+            - --prometheus.wal-directory=/data/wal
+            - --prometheus.api-address=http://localhost:9090
+            - --stackdriver.kubernetes.location=europe-west2
+            - --stackdriver.kubernetes.cluster-name=aggregator
+            - --log.level=debug
+            # for debugging: prevents sending the metrics to the Cloud Monitoring API 
+            - --stackdriver.store-in-files-directory=/data/all
+          ports:
+            - name: sidecar
+              containerPort: 9091
+          volumeMounts:
+            - name: metrics-volume
+              mountPath: /data
+      volumes:
+        - name: config-volume
+          configMap:
+            name: prometheus-server-conf
+        - name: metrics-volume
+          emptyDir: {}
+---
+# For debugging: to be removed, or configured to use access control.
+apiVersion: v1
+kind: Service
+metadata:
+  name: metrics-sidecar
+  labels:
+    app: metrics-sidecar
+spec:
+  selector:
+    app: metrics-sidecar
+  ports:
+    - port: 9090
+      name: prometheus
+  type: LoadBalancer
+  # This IP address was reserved it Google Cloud. New IP addresses can be reserved at:
+  # https://pantheon.corp.google.com/networking/addresses/list?project=oak-ci
+  # IP that is used here must not be used anywhere else.
+  loadBalancerIP: '35.246.87.178'
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-server-conf
+  labels:
+    name: prometheus-server-conf
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval:     15s # By default, scrape targets every 15 seconds.
+      
+      # Attach these labels to any time series or alerts when communicating with
+      # external systems (federation, remote storage, Alertmanager).
+      external_labels:
+        monitor: 'aggregator-monitor'
+      
+    # A scrape configuration containing exactly one endpoint to scrape:
+    scrape_configs:
+      # The job name is added as a label `job=<job_name>` to any timeseries scraped from this config.
+      - job_name: 'aggregator'
+      
+      # Override the global default and scrape targets from this job every 5 seconds.
+        scrape_interval: 5s
+      
+        static_configs:
+          - targets: ['10.0.5.19:3030']

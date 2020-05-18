@@ -70,6 +70,9 @@ spec:
           image: gcr.io/oak-ci/oak-aggregator:latest
           ports:
             - containerPort: 8080
+              name: aggregator
+            - containerPort: 3030
+              name: metrics
           volumeMounts:
             - name: tls-secret
               mountPath: '/etc/oak-secrets'
@@ -84,47 +87,10 @@ spec:
           env:
             - name: RUST_LOG
               value: info
-        - name: prometheus
-          image: gcr.io/cloud-marketplace/google/prometheus:2.11
-          args:
-            - "--config.file=/etc/prometheus/config/prometheus.yml"
-            - "--storage.tsdb.path=/data"
-            - "--storage.tsdb.min-block-duration=15m"
-            - "--storage.tsdb.max-block-duration=4h"
-            - "--storage.tsdb.retention.time=48h"
-          ports:
-            - name: prometheus
-              containerPort: 9090
-          volumeMounts:
-            - name: config-volume
-              mountPath: /etc/prometheus/config
-            - name: metrics-volume
-              mountPath: /data
-        - name: stackdriver-prometheus-sidecar
-          image: gcr.io/stackdriver-prometheus/stackdriver-prometheus-sidecar:0.6.4
-          imagePullPolicy: Always
-          args:
-            - --stackdriver.project-id=oak-ci
-            - --prometheus.wal-directory=/data/wal
-            - --prometheus.api-address=http://localhost:9090
-            - --stackdriver.kubernetes.location=europe-west2
-            - --stackdriver.kubernetes.cluster-name=aggregator
-            - --log.level=debug
-          ports:
-            - name: sidecar
-              containerPort: 9091
-          volumeMounts:
-            - name: metrics-volume
-              mountPath: /data
       volumes:
         - name: tls-secret
           secret:
             secretName: tls-private-key
-        - name: config-volume
-          configMap:
-            name: prometheus-server-conf
-        - name: metrics-volume
-          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -138,38 +104,22 @@ spec:
   ports:
     - port: 8080
       name: aggregator
-    - port: 9090
-      name: prometheus
   type: LoadBalancer
   # This IP address was reserved it Google Cloud. New IP addresses can be reserved at:
   # https://pantheon.corp.google.com/networking/addresses/list?project=oak-ci
   # IP that is used here must not be used anywhere else.
   loadBalancerIP: '35.246.87.178'
 ---
+# Expose the metrics service internally
 apiVersion: v1
-kind: ConfigMap
+kind: Service
 metadata:
-  name: prometheus-server-conf
+  name: aggregator-metrics
   labels:
-    name: prometheus-server-conf
-data:
-  prometheus.yml: |
-    global:
-      scrape_interval:     15s # By default, scrape targets every 15 seconds.
-      
-      # Attach these labels to any time series or alerts when communicating with
-      # external systems (federation, remote storage, Alertmanager).
-      external_labels:
-        monitor: 'aggregator-monitor'
-      
-    # A scrape configuration containing exactly one endpoint to scrape:
-    scrape_configs:
-      # The job name is added as a label `job=<job_name>` to any timeseries scraped from this config.
-      - job_name: 'aggregator'
-      
-      # Override the global default and scrape targets from this job every 5 seconds.
-        scrape_interval: 5s
-      
-        static_configs:
-          - targets: ['localhost:3030']
-
+    app: aggregator
+spec:
+  ports:
+  - port: 3030
+    protocol: TCP
+  selector:
+    app: aggregator
