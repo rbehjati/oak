@@ -102,4 +102,4 @@ data:
         scrape_interval: 5s
       
         static_configs:
-          - targets: ['10.0.5.19:3030']
+          - targets: ['http://aggregator-metrics']
