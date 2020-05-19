@@ -103,7 +103,6 @@ spec:
     app: aggregator
   ports:
     - port: 8080
-      name: aggregator
   type: LoadBalancer
   # This IP address was reserved it Google Cloud. New IP addresses can be reserved at:
   # https://pantheon.corp.google.com/networking/addresses/list?project=oak-ci
@@ -119,7 +118,7 @@ metadata:
     app: aggregator
 spec:
   ports:
-  - port: 3030
-    protocol: TCP
+    - port: 3030
+      protocol: TCP
   selector:
     app: aggregator

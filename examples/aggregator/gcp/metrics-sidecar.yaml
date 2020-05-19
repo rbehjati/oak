@@ -16,14 +16,14 @@ spec:
     spec:
       containers:
         - name: prometheus
-        # use an older version that is compatible with the older version of the sidecar
+          # using an older version that is compatible with the older version of the sidecar
           image: quay.io/prometheus/prometheus:v2.6.0
           args:
-            - "--config.file=/etc/prometheus/config/prometheus.yml"
-            - "--storage.tsdb.path=/data"
-            - "--storage.tsdb.min-block-duration=15m"
-            - "--storage.tsdb.max-block-duration=4h"
-            - "--storage.tsdb.retention=48h"
+            - '--config.file=/etc/prometheus/config/prometheus.yml'
+            - '--storage.tsdb.path=/data'
+            - '--storage.tsdb.min-block-duration=15m'
+            - '--storage.tsdb.max-block-duration=4h'
+            - '--storage.tsdb.retention=48h'
           ports:
             - name: prometheus
               containerPort: 9090
@@ -33,7 +33,9 @@ spec:
             - name: metrics-volume
               mountPath: /data
         - name: stackdriver-prometheus-sidecar
-        # use an older version that allows running `kubectl exec -it <pod-name> -c stackdriver-prometheus-sidecar -- sh`
+          # using an older version that allows running 
+          # `kubectl exec -it <pod-name> -c stackdriver-prometheus-sidecar -- sh`
+          # for debugging
           image: gcr.io/stackdriver-prometheus/stackdriver-prometheus-sidecar:0.4.3
           imagePullPolicy: Always
           args:
@@ -43,7 +45,7 @@ spec:
             - --stackdriver.kubernetes.location=europe-west2
             - --stackdriver.kubernetes.cluster-name=aggregator
             - --log.level=debug
-            # for debugging: prevents sending the metrics to the Cloud Monitoring API 
+            # for debugging: to be removed, as it prevents sending the metrics to the Cloud Monitoring API.
             - --stackdriver.store-in-files-directory=/data/all
           ports:
             - name: sidecar
@@ -72,9 +74,7 @@ spec:
     - port: 9090
       name: prometheus
   type: LoadBalancer
-  # This IP address was reserved it Google Cloud. New IP addresses can be reserved at:
-  # https://pantheon.corp.google.com/networking/addresses/list?project=oak-ci
-  # IP that is used here must not be used anywhere else.
+  # Reusing the static IP of the aggregator. 
   loadBalancerIP: '35.246.87.178'
 ---
 apiVersion: v1
