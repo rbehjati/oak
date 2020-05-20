@@ -36,6 +36,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: prometheus
+  namespace: default
 ---
 apiVersion: v1
 kind: Service
@@ -108,6 +109,7 @@ spec:
           # using an older version that allows running 
           # `kubectl exec -it <pod-name> -c stackdriver-prometheus-sidecar -- sh`
           # for debugging
+          # image: gcr.io/stackdriver-prometheus/stackdriver-prometheus-sidecar:0.4.3
           image: gcr.io/stackdriver-prometheus/stackdriver-prometheus-sidecar:0.6.4
           imagePullPolicy: Always
           args:
@@ -158,7 +160,7 @@ metadata:
 data:
   prometheus.yml: |
     global:
-      scrape_interval:     10s # By default, scrape targets every 10 seconds.
+      scrape_interval:     15s # By default, scrape targets every 15 seconds.
       
       # Attach these labels to any time series or alerts when communicating with
       # external systems (federation, remote storage, Alertmanager).
