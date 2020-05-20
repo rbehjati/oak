@@ -172,6 +172,8 @@ data:
         kubernetes_sd_configs:
         - role: pod
         relabel_configs:
+        # Keep useful pod related labels that prometheus adds automatically.
+        # Ref: https://prometheus.io/docs/prometheus/latest/configuration/configuration/#pod
         - action: keep
           source_labels:
           - __meta_kubernetes_pod_name
