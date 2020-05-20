@@ -4,6 +4,8 @@ metadata:
   name: aggregator
   labels:
     app: aggregator
+  annotations:
+    prometheus.io/scrape: 'true'
 spec:
   containers:
     - name: oak-application
@@ -71,7 +73,7 @@ spec:
           ports:
             - containerPort: 8080
               name: aggregator
-            - containerPort: 3030
+            - containerPort: 9090
               name: metrics
           volumeMounts:
             - name: tls-secret
@@ -108,17 +110,17 @@ spec:
   # https://pantheon.corp.google.com/networking/addresses/list?project=oak-ci
   # IP that is used here must not be used anywhere else.
   loadBalancerIP: '35.246.87.178'
----
-# Expose the metrics service internally
-apiVersion: v1
-kind: Service
-metadata:
-  name: aggregator-metrics
-  labels:
-    app: aggregator
-spec:
-  ports:
-    - port: 3030
-      protocol: TCP
-  selector:
-    app: aggregator
+# ---
+# # Expose the metrics service internally
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: aggregator-metrics
+#   labels:
+#     app: aggregator
+# spec:
+#   ports:
+#     - port: 9090
+#       protocol: TCP
+#   selector:
+#     app: aggregator

@@ -14,3 +14,6 @@ kubectl create secret generic tls-private-key \
   --from-file="${GLOBAL_ROOT_DIR}/examples/certs/gcp/gcp.pem" \
   --from-file="${GLOBAL_ROOT_DIR}/examples/certs/gcp/ca.pem"
 kubectl apply --filename="${GLOBAL_ROOT_DIR}/examples/aggregator/gcp/pod.yaml"
+
+kubectl apply --filename="${GLOBAL_ROOT_DIR}/examples/aggregator/gcp/metrics-sidecar.yaml"
+
