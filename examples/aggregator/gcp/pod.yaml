@@ -20,7 +20,7 @@ spec:
           ports:
             - containerPort: 8080
               name: aggregator
-            - containerPort: 3030
+            - containerPort: 9090
               name: metrics
           volumeMounts:
             - name: tls-secret
@@ -52,7 +52,6 @@ spec:
     app: aggregator
   ports:
     - port: 8080
-      name: aggregator
   type: LoadBalancer
   # This IP address was reserved it Google Cloud. New IP addresses can be reserved at:
   # https://pantheon.corp.google.com/networking/addresses/list?project=oak-ci
