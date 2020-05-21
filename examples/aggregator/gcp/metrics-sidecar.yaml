@@ -1,3 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agg-metrics
+---
 # mostly copied from https://github.com/Stackdriver/stackdriver-prometheus-sidecar/blob/c099885501bd3767f7a8c0e012ad978b0f9ff634/kube/full/prometheus.yaml
 apiVersion: rbac.authorization.k8s.io/v1beta1
 kind: ClusterRole
@@ -24,6 +29,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: prometheus
+  namespace: agg-metrics
 ---
 apiVersion: rbac.authorization.k8s.io/v1beta1
 kind: ClusterRoleBinding
@@ -36,7 +42,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: prometheus
-  namespace: default
+  namespace: agg-metrics
 ---
 apiVersion: v1
 kind: Service
@@ -48,17 +54,18 @@ metadata:
     prometheus.io/port: '9090'
     prometheus.io/port2: '9091'
   name: prometheus-k8s
+  namespace: agg-metrics
 spec:
   type: LoadBalancer
   externalTrafficPolicy: Cluster
   ports:
   - name: prometheus
-    nodePort: 32387
+    nodePort: 32388
     port: 9090
     protocol: TCP
     targetPort: 9090
   - name: sidecar
-    nodePort: 30182
+    nodePort: 30183
     port: 9091
     protocol: TCP
     targetPort: 9091
@@ -71,6 +78,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: metrics-sidecar
+  namespace: agg-metrics
   labels:
     app: metrics-sidecar
 spec:
@@ -134,27 +142,29 @@ spec:
         - name: metrics-volume
           emptyDir: {}
 ---
-# # For debugging: to be removed, or configured to use access control.
-# apiVersion: v1
-# kind: Service
-# metadata:
-#   name: metrics-sidecar
-#   labels:
-#     app: metrics-sidecar
-# spec:
-#   selector:
-#     app: metrics-sidecar
-#   ports:
-#     - port: 9090
-#       name: prometheus
-#   type: LoadBalancer
-#   # Reusing the static IP of the aggregator. 
-#   loadBalancerIP: '35.246.87.178'
-# ---
+# For debugging: to be removed, or configured to use access control.
+apiVersion: v1
+kind: Service
+metadata:
+  name: metrics-sidecar
+  namespace: agg-metrics
+  labels:
+    app: metrics-sidecar
+spec:
+  selector:
+    app: metrics-sidecar
+  ports:
+    - port: 9090
+      name: prometheus
+  type: LoadBalancer
+  # Reusing the static IP of the aggregator. 
+  loadBalancerIP: '35.246.87.178'
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: prometheus-server-conf
+  namespace: agg-metrics
   labels:
     name: prometheus-server-conf
 data:
@@ -170,14 +180,14 @@ data:
     # A scrape configuration containing exactly one endpoint to scrape:
     scrape_configs:
       # The job name is added as a label `job=<job_name>` to any timeseries scraped from this config.
-      - job_name: 'kubernetes-pods'
+      - job_name: 'k8s-endpoints'
         kubernetes_sd_configs:
-        - role: pod
+        - role: endpoints
         relabel_configs:
-        # Keep useful pod related labels that prometheus adds automatically.
+        # Keep useful labels that prometheus adds automatically.
         # Ref: https://prometheus.io/docs/prometheus/latest/configuration/configuration/#pod
         - action: keep
           source_labels:
-          - __meta_kubernetes_pod_name
-          - __meta_kubernetes_pod_ip
-      
+          - __meta_kubernetes_service_name
+          - __meta_kubernetes_endpoint_port_name
+
