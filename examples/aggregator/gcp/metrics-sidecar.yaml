@@ -1,29 +1,29 @@
+# mostly copied from https://github.com/Stackdriver/stackdriver-prometheus-sidecar/blob/master/kube/full/prometheus.yaml
 apiVersion: v1
 kind: Namespace
 metadata:
   name: agg-metrics
 ---
-# mostly copied from https://github.com/Stackdriver/stackdriver-prometheus-sidecar/blob/c099885501bd3767f7a8c0e012ad978b0f9ff634/kube/full/prometheus.yaml
 apiVersion: rbac.authorization.k8s.io/v1beta1
 kind: ClusterRole
 metadata:
   name: prometheus
 rules:
-- apiGroups: [""]
-  resources:
-  - nodes
-  - nodes/proxy
-  - services
-  - endpoints
-  - pods
-  verbs: ["get", "list", "watch"]
-- apiGroups:
-  - extensions
-  resources:
-  - ingresses
-  verbs: ["get", "list", "watch"]
-- nonResourceURLs: ["/metrics"]
-  verbs: ["get"]
+  - apiGroups: ['']
+    resources:
+      - nodes
+      - nodes/proxy
+      - services
+      - endpoints
+      - pods
+    verbs: ['get', 'list', 'watch']
+  - apiGroups:
+      - extensions
+    resources:
+      - ingresses
+    verbs: ['get', 'list', 'watch']
+  - nonResourceURLs: ['/metrics']
+    verbs: ['get']
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -40,9 +40,9 @@ roleRef:
   kind: ClusterRole
   name: prometheus
 subjects:
-- kind: ServiceAccount
-  name: prometheus
-  namespace: agg-metrics
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: agg-metrics
 ---
 apiVersion: v1
 kind: Service
@@ -59,16 +59,16 @@ spec:
   type: LoadBalancer
   externalTrafficPolicy: Cluster
   ports:
-  - name: prometheus
-    nodePort: 32388
-    port: 9090
-    protocol: TCP
-    targetPort: 9090
-  - name: sidecar
-    nodePort: 30183
-    port: 9091
-    protocol: TCP
-    targetPort: 9091
+    - name: prometheus
+      nodePort: 32388
+      port: 9090
+      protocol: TCP
+      targetPort: 9090
+    - name: sidecar
+      nodePort: 30183
+      port: 9091
+      protocol: TCP
+      targetPort: 9091
   selector:
     app: prometheus
     prometheus: k8s
@@ -96,8 +96,8 @@ spec:
         runAsUser: 0
       containers:
         - name: prometheus
-          # using an older version that is compatible with the older version of the sidecar
-          # image: quay.io/prometheus/prometheus:v2.6.0
+          # 2.11 seems to be the highest version that is tested.
+          # TO-DO: experiment with newer versions
           image: prom/prometheus:v2.11.2
           args:
             - '--config.file=/etc/prometheus/config/prometheus.yml'
@@ -114,10 +114,8 @@ spec:
             - name: metrics-volume
               mountPath: /data
         - name: stackdriver-prometheus-sidecar
-          # using an older version that allows running 
+          # version 0.4.3 (with quay.io/prometheus/prometheus:v2.6.0) allows debugging:
           # `kubectl exec -it <pod-name> -c stackdriver-prometheus-sidecar -- sh`
-          # for debugging
-          # image: gcr.io/stackdriver-prometheus/stackdriver-prometheus-sidecar:0.4.3
           image: gcr.io/stackdriver-prometheus/stackdriver-prometheus-sidecar:0.6.4
           imagePullPolicy: Always
           args:
@@ -142,24 +140,6 @@ spec:
         - name: metrics-volume
           emptyDir: {}
 ---
-# For debugging: to be removed, or configured to use access control.
-apiVersion: v1
-kind: Service
-metadata:
-  name: metrics-sidecar
-  namespace: agg-metrics
-  labels:
-    app: metrics-sidecar
-spec:
-  selector:
-    app: metrics-sidecar
-  ports:
-    - port: 9090
-      name: prometheus
-  type: LoadBalancer
-  # Reusing the static IP of the aggregator. 
-  loadBalancerIP: '35.246.87.178'
----
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -171,11 +151,6 @@ data:
   prometheus.yml: |
     global:
       scrape_interval:     15s # By default, scrape targets every 15 seconds.
-      
-      # Attach these labels to any time series or alerts when communicating with
-      # external systems (federation, remote storage, Alertmanager).
-      # external_labels:
-      #  monitor: 'aggregator-monitor'
       
     # A scrape configuration containing exactly one endpoint to scrape:
     scrape_configs:
@@ -190,4 +165,3 @@ data:
           source_labels:
           - __meta_kubernetes_service_name
           - __meta_kubernetes_endpoint_port_name
-
