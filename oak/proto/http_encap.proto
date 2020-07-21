@@ -1,5 +1,5 @@
 //
-// Copyright 2019 The Project Oak Authors
+// Copyright 2020 The Project Oak Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,13 +22,13 @@ import "third_party/google/rpc/status.proto";
 
 // Protocol buffer encoding representing an HTTP/2 request.
 message HttpRequest {
-  // The url to which the request was sent.
+  // The URL to which the request was sent.
   string url = 1;
-  // The http request method used.
+  // The HTTP request method used.
   string method = 2;
   // The body of the request.
   bytes body = 3;
-  // The http request headers.
+  // The HTTP request headers.
   map<string, bytes> headers = 4;
 }
 
@@ -36,8 +36,8 @@ message HttpRequest {
 message HttpResponse {
   // The body of the response.
   bytes body = 1;
-  // The http status code.
+  // The HTTP status code.
   int32 status = 2;
-  // The http response headers.
+  // The HTTP response headers.
   map<string, bytes> headers = 3;
 }

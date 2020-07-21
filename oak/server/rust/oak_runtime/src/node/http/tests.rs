@@ -47,10 +47,12 @@ async fn test_low_level_server_node() {
     // Start the server node
     let (notify_sender, notify_receiver) = tokio::sync::oneshot::channel::<()>();
     let runtime_proxy = runtime.clone();
+    // TODO(#1186): Use tokio instead of spawning a thread.
     let server_node_thread =
         std::thread::spawn(move || server_node.run(runtime_proxy, init_receiver, notify_receiver));
 
     // Simulate an Oak node that responds with 200 (OK) to every request it receives
+    // TODO(#1186): Use tokio instead of spawning a thread.
     let runtime_proxy = runtime.clone();
     let oak_node_simulator_thread = thread::Builder::new()
         .name("Oak node simulator".to_string())

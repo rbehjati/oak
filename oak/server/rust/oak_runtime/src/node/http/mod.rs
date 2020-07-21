@@ -27,7 +27,7 @@ use hyper::{
     service::{make_service_fn, service_fn},
     Body, Request, Response, Server, StatusCode,
 };
-use log::{debug, error, info, trace, warn};
+use log::{debug, error, info, warn};
 use oak_abi::{
     label::Label,
     proto::oak::{
@@ -108,8 +108,7 @@ impl HttpServerNode {
         runtime: &RuntimeProxy,
         startup_handle: oak_abi::Handle,
     ) -> Result<oak_abi::Handle, OakStatus> {
-        runtime
-                .channel_read(startup_handle)
+        runtime.channel_read(startup_handle)
                 .map_err(|error| {
                     error!("Couldn't read from the initial reader handle {:?}", error);
                     OakStatus::ErrInternal
@@ -121,6 +120,7 @@ impl HttpServerNode {
                             OakStatus::ErrInternal
                         })
                         .and_then(|m| {
+                            // TODO(#1186): create an Init object and define encode/decode for it
                             if m.handles.len() == 1 {
                                 let handle = m.handles[0];
                                 match runtime.channel_direction(handle)? {
@@ -167,7 +167,7 @@ impl HttpServerNode {
         });
 
         let server = Server::bind(&self.address).serve(make_service);
-        let graceful = server.with_graceful_shutdown(async {
+        let graceful_server = server.with_graceful_shutdown(async {
             // Treat notification failure the same as a notification.
             let _ = notify_receiver.await;
         });
@@ -178,10 +178,11 @@ impl HttpServerNode {
         );
 
         // Run until asked to terminate...
-        let result = graceful.await;
+        let result = graceful_server.await;
         info!("HTTP server pseudo-node terminated with {:?}", result);
     }
 
+    // Create an instance of HttpRequest, from the given Request.
     async fn map_to_http_request(req: Request<Body>) -> HttpRequest {
         let url = req.uri().to_string();
         let method = req.method().as_str().to_string();
@@ -291,7 +292,7 @@ impl HttpRequestHandler {
         let future = async move {
             let oak_label = get_oak_label(&request)?;
             info!(
-                "handling HTTP/2 request; request size: {} bytes, label: {:?}",
+                "handling HTTP request; request size: {} bytes, label: {:?}",
                 request.body.len(),
                 oak_label
             );
@@ -312,11 +313,11 @@ impl HttpRequestHandler {
         request: HttpRequest,
         label: &Label,
     ) -> Result<HttpResponseIterator, ()> {
-        // Create a pair of temporary channels to pass the HTTP/2 request and to receive the
+        // Create a pair of temporary channels to pass the HTTP request and to receive the
         // response.
         let pipe = Pipe::new(&self.runtime.clone(), label)?;
 
-        // Serialize HTTP/2 request into a message.
+        // Serialize HTTP request into a message.
         let mut message = crate::NodeMessage {
             data: vec![],
             handles: vec![],
@@ -351,9 +352,10 @@ struct Pipe {
 }
 
 impl Pipe {
-    // The channel containing the request is created with the label specified by the caller.
-    // This will fail if the label has a non-empty integrity component.
     fn new(runtime: &RuntimeProxy, label: &Label) -> Result<Self, ()> {
+        // Create a channel for passing HTTP requests to the Oak node. This channel is created with
+        // the label specified by the caller. This will fail if the label has a non-empty
+        // integrity component.
         let (request_writer, request_reader) = runtime.channel_create(&label).map_err(|err| {
             warn!("could not create HTTP request channel: {:?}", err);
         })?;
@@ -381,7 +383,7 @@ impl Pipe {
             .channel_write(self.request_writer, message)
             .map_err(|err| {
                 error!(
-                    "Couldn't write message to the Http request channel: {:?}",
+                    "Couldn't write message to the HTTP request channel: {:?}",
                     err
                 );
             })
@@ -392,10 +394,7 @@ impl Pipe {
         runtime: &RuntimeProxy,
         invocation_channel: oak_abi::Handle,
     ) -> Result<(), ()> {
-        // Create an invocation message and attach the method-invocation specific channels to it.
-        //
-        // This message should be in sync with the [`oak::http::Invocation`] from the Oak SDK:
-        // the order of the `request_reader` and `response_writer` must be consistent.
+        // Create an invocation message and attach the request specific channels to it.
         let invocation = crate::NodeMessage {
             data: vec![],
             handles: vec![self.request_reader, self.response_writer],
@@ -405,7 +404,7 @@ impl Pipe {
         runtime
             .channel_write(invocation_channel, invocation)
             .map_err(|error| {
-                error!("Couldn't write gRPC invocation message: {:?}", error);
+                error!("Couldn't write the invocation message: {:?}", error);
             })
     }
 
@@ -432,18 +431,16 @@ impl Pipe {
     }
 }
 
+// TODO(#1279): Get the label from a JSON string instead of a binary label
 fn get_oak_label(req: &HttpRequest) -> Result<Label, OakStatus> {
     match req.headers.get(oak_abi::OAK_LABEL_HTTP_KEY) {
-        Some(label) => {
-            let label_bytes = bytes::Bytes::copy_from_slice(&label[..]);
-            Label::decode(label_bytes).map_err(|err| {
-                warn!("Could not parse Http label: {}", err);
-                OakStatus::ErrInternal
-            })
-        }
+        Some(label) => Label::decode(&label[..]).map_err(|err| {
+            warn!("Could not parse HTTP label: {}", err);
+            OakStatus::ErrInvalidArgs
+        }),
         None => {
             warn!("No HTTP label found:");
-            Err(OakStatus::ErrInternal)
+            Err(OakStatus::ErrInvalidArgs)
         }
     }
 }
@@ -454,50 +451,9 @@ struct HttpResponseIterator {
 }
 
 impl HttpResponseIterator {
-    fn read_response(&self) -> Option<HttpResponse> {
-        let read_status = self
-            .runtime
-            .wait_on_channels(&[self.response_reader])
-            .map_err(|error| {
-                error!("Couldn't wait on the HTTP response channel: {:?}", error);
-            })
-            .ok()?;
-
-        if read_status[0] == ChannelReadStatus::ReadReady {
-            match self.runtime.channel_read(self.response_reader) {
-                Ok(Some(msg)) => match HttpResponse::decode(msg.data.as_slice()) {
-                    Ok(http_rsp) => {
-                        trace!(
-                            "Return response of size {}, status={:?}",
-                            http_rsp.body.len(),
-                            http_rsp.status,
-                        );
-                        Some(http_rsp)
-                    }
-                    Err(err) => {
-                        error!("Couldn't parse the HttpResponse message: {}", err);
-                        None
-                    }
-                },
-                Ok(None) => {
-                    error!("No message available on HTTP response channel");
-                    None
-                }
-                Err(status) => {
-                    error!("Couldn't read from the HTTP response channel: {:?}", status);
-                    None
-                }
-            }
-        } else if read_status[0] == ChannelReadStatus::Orphaned {
-            debug!("HTTP response channel closed");
-            None
-        } else {
-            error!(
-                "Couldn't read from the HTTP response channel: {:?}",
-                read_status[0]
-            );
-            None
-        }
+    fn read_response(&self) -> Result<HttpResponse, OakStatus> {
+        let response_receiver = crate::io::Receiver::<HttpResponse>::new(self.response_reader);
+        response_receiver.receive(&self.runtime)
     }
 
     fn to_response(&self) -> Response<Body> {
@@ -506,14 +462,19 @@ impl HttpResponseIterator {
             self.runtime.node_id.0, self.response_reader
         );
         let mut response = Response::new(Body::empty());
-        if let Some(http_response) = self.read_response() {
-            let status_code = http_response.status as u16;
-            *response.body_mut() = Body::from(http_response.body);
-            *response.status_mut() = StatusCode::from_u16(status_code)
-                .unwrap_or_else(|_| panic!("Error when creating status code {}", status_code));
-        } else {
-            *response.status_mut() = StatusCode::from_u16(503)
-                .expect("Error when creating internal error (503) status code.");
+        match self.read_response() {
+            Ok(http_response) => {
+                let status_code = http_response.status as u16;
+                *response.body_mut() = Body::from(http_response.body);
+                *response.status_mut() = StatusCode::from_u16(status_code)
+                    .unwrap_or_else(|_| panic!("Error when creating status code {}", status_code));
+            }
+            Err(status) => {
+                error!("Could not read response: {}", status);
+                *response.status_mut() =
+                    StatusCode::from_u16(http::status::StatusCode::INTERNAL_SERVER_ERROR.as_u16())
+                        .expect("Error when creating internal error (500) status code.");
+            }
         }
         response
     }
