@@ -21,6 +21,7 @@ use std::{collections::HashMap, thread};
 
 #[tokio::test]
 async fn test_low_level_server_node() {
+    let _ = env_logger::builder().is_test(true).try_init();
     let configuration = ApplicationConfiguration {
         wasm_modules: hashmap! {},
         initial_node_configuration: None,
