@@ -17,9 +17,10 @@
 use super::*;
 use maplit::hashmap;
 use oak_abi::{label::Label, proto::oak::application::ApplicationConfiguration};
-use std::{collections::HashMap, thread};
+use std::{collections::HashMap};
 
-#[tokio::test]
+#[cfg(feature = "rt-threaded")]
+#[tokio::test(core_threads = 2)]
 async fn test_low_level_server_node() {
     let _ = env_logger::builder().is_test(true).try_init();
     let configuration = ApplicationConfiguration {
@@ -31,9 +32,48 @@ async fn test_low_level_server_node() {
         &configuration,
         &crate::GrpcConfiguration::default(),
     );
-
     let (init_receiver, invocation_receiver) = create_communication_channel(&runtime);
+    let (notify_sender, notify_receiver) = tokio::sync::oneshot::channel::<()>();
 
+    // TODO(#1186): Use tokio instead of spawning a thread.
+    let runtime_proxy = runtime.clone();
+    let server_node_thread =
+        tokio::spawn(async move { start_server_node(runtime_proxy, init_receiver, notify_receiver).await});
+
+    // Simulate an Oak node that responds with 200 (OK) to every request it receives
+    // TODO(#1186): Use tokio instead of spawning a thread.
+    let runtime_proxy = runtime.clone();
+    let oak_node_simulator_thread = tokio::spawn(async move {
+            oak_node_simulator(&runtime_proxy, invocation_receiver).await
+        });
+
+    let task_3 = tokio::spawn(async move {send_request_and_check_response(notify_sender).await});
+
+    // let _ = server_node_thread.join();
+    // let _ = oak_node_simulator_thread.join();
+    let tasks = vec![server_node_thread, oak_node_simulator_thread, task_3];
+    futures::future::join_all(tasks).await;
+
+    // Clean up - stop the runtime ans any servers it is running
+    runtime.runtime.stop();
+}
+
+fn create_async_runtime() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new()
+        // Use simple scheduler that runs all tasks on the current-thread.
+        // https://docs.rs/tokio/0.2.16/tokio/runtime/index.html#basic-scheduler
+        .basic_scheduler()
+        // Enables the I/O driver.
+        // Necessary for using net, process, signal, and I/O types on the Tokio runtime.
+        .enable_io()
+        // Enables the time driver.
+        // Necessary for creating a Tokio Runtime.
+        .enable_time()
+        .build()
+        .expect("Couldn't create Async runtime")
+}
+
+async fn start_server_node(runtime: RuntimeProxy, init_receiver: oak_abi::Handle, notify_receiver: tokio::sync::oneshot::Receiver<()>) {
     // Create http server node
     let server_node = Box::new(
         HttpServerNode::new(
@@ -46,36 +86,20 @@ async fn test_low_level_server_node() {
     );
 
     // Start the server node
-    let (notify_sender, notify_receiver) = tokio::sync::oneshot::channel::<()>();
-    let runtime_proxy = runtime.clone();
-    // TODO(#1186): Use tokio instead of spawning a thread.
-    let server_node_thread =
-        std::thread::spawn(move || server_node.run(runtime_proxy, init_receiver, notify_receiver));
+    server_node.run(runtime, init_receiver, notify_receiver);
+}
 
-    // Simulate an Oak node that responds with 200 (OK) to every request it receives
-    // TODO(#1186): Use tokio instead of spawning a thread.
-    let runtime_proxy = runtime.clone();
-    let oak_node_simulator_thread = thread::Builder::new()
-        .name("Oak node simulator".to_string())
-        .spawn(move || {
-            oak_node_simulator(&runtime_proxy, invocation_receiver);
-        })
-        .expect("Error when spawning the thread.");
-
+async fn send_request_and_check_response(notify_sender: tokio::sync::oneshot::Sender<()>) {
     // Send a request, and await on the response
     let resp = send_request().await;
 
-    assert_eq!(resp.status(), http::status::StatusCode::OK.as_u16());
+    assert_eq!(resp.status(), 1 + http::status::StatusCode::OK.as_u16());
 
     notify_sender.send(()).unwrap_or_else(|()| {
         debug!("Test node already dropped `notify_receiver`.");
     });
-    let _ = server_node_thread.join();
-    let _ = oak_node_simulator_thread.join();
-
-    // Clean up - stop the runtime ans any servers it is running
-    runtime.runtime.stop();
 }
+
 
 fn create_communication_channel(runtime: &RuntimeProxy) -> (oak_abi::Handle, oak_abi::Handle) {
     // create channel: one end to server_node::run; the other to the Oak node.
@@ -105,7 +129,7 @@ fn create_communication_channel(runtime: &RuntimeProxy) -> (oak_abi::Handle, oak
     (init_receiver, invocation_receiver)
 }
 
-fn oak_node_simulator(runtime: &RuntimeProxy, invocation_receiver: oak_abi::Handle) {
+async fn oak_node_simulator(runtime: &RuntimeProxy, invocation_receiver: oak_abi::Handle) {
     // Get invocation message that contains the response_writer handle.
     let read_status = runtime
         .wait_on_channels(&[invocation_receiver])
