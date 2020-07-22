@@ -184,7 +184,7 @@ impl HttpServerNode {
 
     // Create an instance of HttpRequest, from the given Request.
     async fn map_to_http_request(req: Request<Body>) -> HttpRequest {
-        let url = req.uri().to_string();
+        let path = req.uri().to_string();
         let method = req.method().as_str().to_string();
         let req_headers = req.headers();
         let headers = req_headers
@@ -202,7 +202,7 @@ impl HttpServerNode {
             .to_vec();
 
         HttpRequest {
-            url,
+            path,
             method,
             body,
             headers,
@@ -248,6 +248,7 @@ impl Node for HttpServerNode {
 
         // Create an Async runtime for executing futures.
         // https://docs.rs/tokio/
+        // TODO(#1280): Use a single shared tokio runtime, instead of creating a new one here
         let mut async_runtime = create_async_runtime();
 
         // Start the HTTP server.
@@ -317,18 +318,8 @@ impl HttpRequestHandler {
         // response.
         let pipe = Pipe::new(&self.runtime.clone(), label)?;
 
-        // Serialize HTTP request into a message.
-        let mut message = crate::NodeMessage {
-            data: vec![],
-            handles: vec![],
-        };
-
-        request.encode(&mut message.data).map_err(|err| {
-            error!("Couldn't serialize HttpRequest message: {}", err);
-        })?;
-
         // Put the HTTP request message inside the per-invocation request channel.
-        pipe.insert_message(&self.runtime, message)?;
+        pipe.insert_message(&self.runtime, request)?;
 
         // Send an invocation message (with attached handles) to the Oak Node.
         pipe.send_invocation(&self.runtime, self.invocation_channel)?;
@@ -373,20 +364,15 @@ impl Pipe {
         })
     }
 
-    fn insert_message(
-        &self,
-        runtime: &RuntimeProxy,
-        message: crate::NodeMessage,
-    ) -> Result<(), ()> {
+    fn insert_message(&self, runtime: &RuntimeProxy, request: HttpRequest) -> Result<(), ()> {
         // Put the HTTP request message inside the per-invocation request channel.
-        runtime
-            .channel_write(self.request_writer, message)
-            .map_err(|err| {
-                error!(
-                    "Couldn't write message to the HTTP request channel: {:?}",
-                    err
-                );
-            })
+        let sender = crate::io::Sender::new(self.request_writer);
+        sender.send(request, runtime).map_err(|err| {
+            error!(
+                "Couldn't write the request to the HTTP request channel: {:?}",
+                err
+            )
+        })
     }
 
     fn send_invocation(
@@ -395,6 +381,7 @@ impl Pipe {
         invocation_channel: oak_abi::Handle,
     ) -> Result<(), ()> {
         // Create an invocation message and attach the request specific channels to it.
+        // TODO(#1186): Use a generic version of gRPC invocation, instead of serializing manually
         let invocation = crate::NodeMessage {
             data: vec![],
             handles: vec![self.request_reader, self.response_writer],

@@ -20,10 +20,10 @@ package oak.encap;
 
 import "third_party/google/rpc/status.proto";
 
-// Protocol buffer encoding representing an HTTP/2 request.
+// Protocol buffer encoding representing an HTTP request.
 message HttpRequest {
-  // The URL to which the request was sent.
-  string url = 1;
+  // The path to which the request was sent.
+  string path = 1;
   // The HTTP request method used.
   string method = 2;
   // The body of the request.
