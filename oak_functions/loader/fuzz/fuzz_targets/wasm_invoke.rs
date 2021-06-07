@@ -56,6 +56,9 @@ lazy_static::lazy_static! {
 
 // Generate a random list of `Instruction`s and send them to the Wasm module to run.
 fuzz_target!(|instruction_list: Vec<ArbitraryInstruction>| {
+    println!("inst len: {}", instruction_list.len());
+    println!("instructions: {:?}", instruction_list);    
+
     let instructions = instruction_list
         .iter()
         .map(crate::proto::Instruction::from)
